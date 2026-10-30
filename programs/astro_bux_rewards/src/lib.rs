@@ -114,6 +114,7 @@ pub struct CreateCampaign<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(activity_id: [u8; 32], amount: u64)]
 pub struct AwardReward<'info> {
     #[account(mut, has_one = admin, has_one = reward_mint)]
     pub config: Account<'info, RewardsConfig>,
