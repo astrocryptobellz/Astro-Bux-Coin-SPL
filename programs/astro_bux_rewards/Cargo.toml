@@ -1,6 +1,6 @@
 [package]
 name = "astro_bux_rewards"
-version = "0.1.0"
+version = "0.2.0"
 description = "Admin-controlled Astro Bux SPL token rewards"
 edition = "2021"
 

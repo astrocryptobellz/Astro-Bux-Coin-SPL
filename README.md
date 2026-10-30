@@ -1,32 +1,47 @@
-# Astro Bux SPL Rewards (BARP)
+# Astro Bux SPL Rewards Protocol (BARP)
 
-An Anchor program scaffold for admin-authorized Astro Bux SPL token rewards.
+BARP is an Anchor program scaffold for admin-attested Astro Bux SPL token rewards on Solana.
 
-## Features
-- Creates a classic SPL Token mint controlled by a program-derived authority.
-- Creates reward campaigns with per-campaign caps.
-- Awards tokens to recipient associated token accounts.
-- Prevents duplicate awards for a 32-byte activity ID within a campaign.
-- Supports pausing awards and emits campaign/reward events.
+## BARP v0.2.0 — combined rewards
 
-## Safety status
-This is an unaudited development scaffold, not production-ready. No wallet was connected, no token was minted, no transaction was sent, and nothing was deployed.
+Members register their own profile PDA and can qualify for three campaign categories:
 
-**Important:** The program ID is currently the System Program placeholder. Replace it with a newly generated program ID and update both `declare_id!` and `Anchor.toml` before validator testing or deployment. Never commit private keys or seed phrases.
+- **Activity:** approved tasks and participation.
+- **Membership:** approved member participation or tenure milestones.
+- **Contribution:** approved work that helps build the Astro ecosystem.
 
-## Layout
+The program enforces an active member profile, active campaign, global pause switch, campaign cap, and unique 32-byte activity ID per campaign. Every successful award creates an on-chain receipt and updates the member's cumulative reward counter.
+
+## Trust and eligibility model
+
+The program does **not** independently verify off-chain activity, membership tenure, or contribution quality. The administrator is the trusted attestor who decides whether evidence qualifies and submits the award. Do not describe awards as automatic or permissionless.
+
+Members sign their own registration. The administrator can suspend or reactivate a member profile, manage campaign status and caps, and pause the reward program.
+
+## Repository layout
+
 - `programs/astro_bux_rewards/src/lib.rs`: Anchor program
-- `tests/astro_bux_rewards.ts`: integration-test starter
-- `SECURITY.md`: assumptions and review checklist
+- `tests/astro_bux_rewards.ts`: local-validator test starter
+- `SECURITY.md`: threat model and pre-test review checklist
 
-## Build/test
-After replacing the placeholder program ID and installing Rust, Solana, Anchor, and Node dependencies:
+## Amounts
+
+All reward amounts and caps are expressed in the SPL mint's smallest units. With 6 decimals, 1 ASTRO = 1,000,000 base units.
+
+## Current safety status
+
+**Prototype only. Not audited, not compiled, and not tested in this workflow.** The program ID is still a placeholder. The repository source is public. No wallet was connected, no token was minted, no transaction was submitted, and nothing was deployed.
+
+## Local test plan (not executed)
+
+After review, install pinned Rust, Solana, Anchor, and Node dependencies, generate a program ID for local testing, update `declare_id!` and `Anchor.toml`, then run:
+
 ```bash
+cargo fmt --all -- --check
 anchor build
 anchor test
 ```
-These commands have not been run here.
 
-Amounts and campaign caps are expressed in the mint's smallest units. With 6 decimals, 1 ASTRO = 1,000,000 base units.
+These commands have not been run. Tests use a local validator and are not a substitute for an independent security audit.
 
-This program only mints capped campaign rewards. It does not implement a sale, presale, liquidity pool, swap, staking, or automatic payout schedule.
+BARP does not implement token sales, presales, swaps, liquidity pools, staking, or automatic recurring payouts. No mainnet launch is part of this version.

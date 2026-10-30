@@ -1,27 +1,35 @@
-# Security Notes
+# BARP Security Notes
 
-**Status: prototype only; not audited. Do not use with real funds or valuable production tokens.**
+**Status: prototype only; unaudited, uncompiled, and untested in this workflow. Do not use with real funds or valuable production tokens.**
 
-## Authority and controls
-- The initializer becomes the administrator.
-- Only the administrator can create campaigns, award rewards, and pause the program.
-- A PDA is the SPL mint authority.
-- Campaign caps are denominated in token base units.
-- A receipt PDA prevents reusing the same 32-byte activity ID in one campaign.
+## v0.2 trust boundaries
 
-## Limitations
-- The administrator can award tokens to any recipient up to the remaining campaign cap; the program does not verify off-chain activity or eligibility.
-- There is no global supply cap, admin rotation/recovery, campaign cancellation, account closure, or rate limiting in this first version.
-- The program ID is a placeholder.
-- The code has not been compiled or independently reviewed in this workflow.
+- The first initializer becomes the administrator; there is no admin rotation or recovery instruction.
+- Members sign their own registration and receive a profile PDA scoped to the program config and wallet.
+- Only the administrator can create/manage campaigns, approve awards, suspend/reactivate members, and pause/unpause the program.
+- The administrator is a trusted off-chain eligibility attestor. The contract checks registration and campaign category but cannot prove a task, tenure milestone, or contribution actually occurred.
+- Each campaign has its own cap. There is no global lifetime supply cap.
+- A receipt PDA prevents reuse of the same 32-byte activity ID within one campaign.
+- Member reward totals are cumulative accounting counters in mint base units; they are not a separate withdrawable balance.
 
-## Before deployment
-1. Replace the placeholder program ID and securely retain its generated keypair.
-2. Pin and verify toolchain/dependency versions.
-3. Run formatting, build, tests, and static analysis.
-4. Add tests for unauthorized access, pause behavior, duplicate IDs, cap exhaustion, overflow, wrong campaign/config, and invalid recipient accounts.
-5. Obtain an independent Solana security review of PDA seeds, constraints, CPI signer seeds, authority lifecycle, and token economics.
-6. Document decimals, total-supply policy, mint/freeze authority policy, and recovery procedures.
-7. Obtain explicit approval before wallet connection, devnet/mainnet deployment, minting, or any transaction.
+## Important limitations and review items
 
-Never commit private keys, seed phrases, or wallet exports.
+- Campaign category is an administrative label; the program does not enforce category-specific evidence.
+- Admin compromise permits arbitrary rewards to registered members up to campaign caps.
+- No admin rotation, multi-signature governance, global mint cap, rate limiting, campaign expiration, receipt cleanup, member profile closure, or on-chain evidence oracle exists.
+- Mint and freeze authority are the program PDA. Review the intended freeze-authority policy and recovery implications.
+- The program ID remains a placeholder and must not be used for validator testing or deployment.
+- The public repository exposes source code; never commit keypairs, seed phrases, wallet exports, or secrets.
+
+## Required tests before any testnet consideration
+
+1. Compile with pinned toolchain and dependency versions.
+2. Test registration, duplicate registration, profile PDA derivation, and member-wallet binding.
+3. Test each reward category and reject inactive/unregistered members.
+4. Test unauthorized admin actions and unauthorized pause/unpause.
+5. Test duplicate activity IDs, cross-campaign receipt isolation, campaign cap exhaustion, cap changes below minted amount, zero awards, and arithmetic overflow.
+6. Test inactive campaigns, global pause, wrong config/mint/campaign accounts, wrong member profile, and ATA constraints.
+7. Run formatting, static analysis, dependency review, and an independent Solana security review of PDA seeds, account constraints, CPI signer seeds, token authorities, and economics.
+8. Document eligibility evidence, admin operating procedures, supply policy, decimals, freeze authority, incident response, and key management.
+
+No wallet connection, signing, transaction, minting, deployment, or spending is authorized by this development task.

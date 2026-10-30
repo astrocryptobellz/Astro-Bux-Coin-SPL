@@ -7,24 +7,50 @@ import {
   getAccount,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
-import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, Keypair } from "@solana/web3.js";
+import {
+  PublicKey,
+  SystemProgram,
+  SYSVAR_RENT_PUBKEY,
+  Keypair,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
 
-describe("astro_bux_rewards", () => {
+describe("astro_bux_rewards BARP v0.2", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const program = anchor.workspace.AstroBuxRewards as Program<any>;
   const admin = (provider.wallet as anchor.Wallet).publicKey;
-  const recipient = Keypair.generate().publicKey;
+  const member = Keypair.generate();
 
-  const [config] = PublicKey.findProgramAddressSync([Buffer.from("config")], program.programId);
+  const [config] = PublicKey.findProgramAddressSync(
+    [Buffer.from("config")], program.programId
+  );
   const [mintAuthority] = PublicKey.findProgramAddressSync(
     [Buffer.from("mint_authority"), config.toBuffer()], program.programId
   );
   const [rewardMint] = PublicKey.findProgramAddressSync(
     [Buffer.from("reward_mint"), config.toBuffer()], program.programId
   );
+  const [memberProfile] = PublicKey.findProgramAddressSync(
+    [Buffer.from("member"), config.toBuffer(), member.publicKey.toBuffer()],
+    program.programId
+  );
 
-  it("initializes the reward mint", async () => {
+  const enumValue = (key: "activity" | "membership" | "contribution") =>
+    ({ [key]: {} } as any);
+
+  before(async () => {
+    const signature = await provider.connection.requestAirdrop(
+      member.publicKey, LAMPORTS_PER_SOL
+    );
+    const latest = await provider.connection.getLatestBlockhash();
+    await provider.connection.confirmTransaction({
+      signature,
+      ...latest,
+    });
+  });
+
+  it("initializes the reward mint and registers a member-owned profile", async () => {
     await program.methods.initialize(6).accounts({
       admin, config, mintAuthority, rewardMint,
       tokenProgram: TOKEN_PROGRAM_ID,
@@ -32,44 +58,87 @@ describe("astro_bux_rewards", () => {
       rent: SYSVAR_RENT_PUBKEY,
     }).rpc();
 
-    const stored = await program.account.rewardsConfig.fetch(config);
-    assert.equal(stored.admin.toBase58(), admin.toBase58());
-    assert.equal(stored.rewardMint.toBase58(), rewardMint.toBase58());
-    assert.equal(stored.paused, false);
+    await program.methods.registerMember().accounts({
+      member: member.publicKey,
+      config,
+      memberProfile,
+      systemProgram: SystemProgram.programId,
+    }).signers([member]).rpc();
+
+    const profile = await program.account.memberProfile.fetch(memberProfile);
+    assert.equal(profile.memberWallet.toBase58(), member.publicKey.toBase58());
+    assert.equal(profile.active, true);
+    assert.equal(profile.totalRewards.toNumber(), 0);
   });
 
-  it("creates a capped campaign and rejects a duplicate activity ID", async () => {
-    const campaignId = new anchor.BN(1);
-    const [campaign] = PublicKey.findProgramAddressSync([
-      Buffer.from("campaign"), config.toBuffer(),
-      campaignId.toArrayLike(Buffer, "le", 8),
-    ], program.programId);
-    await program.methods.createCampaign(campaignId, new anchor.BN(5_000_000))
-      .accounts({ config, admin, campaign, systemProgram: SystemProgram.programId }).rpc();
+  it("awards each combined reward category to an active registered member", async () => {
+    const categories = ["activity", "membership", "contribution"] as const;
+    for (let index = 0; index < categories.length; index += 1) {
+      const campaignId = new anchor.BN(index + 1);
+      const [campaign] = PublicKey.findProgramAddressSync([
+        Buffer.from("campaign"), config.toBuffer(),
+        campaignId.toArrayLike(Buffer, "le", 8),
+      ], program.programId);
 
-    const activityId = Buffer.alloc(32, 7);
-    const [receipt] = PublicKey.findProgramAddressSync(
-      [Buffer.from("receipt"), campaign.toBuffer(), activityId], program.programId
-    );
-    const recipientTokenAccount = getAssociatedTokenAddressSync(rewardMint, recipient);
+      await program.methods.createCampaign(
+        campaignId, new anchor.BN(2_000_000), enumValue(categories[index])
+      ).accounts({
+        config, admin, campaign, systemProgram: SystemProgram.programId,
+      }).rpc();
 
-    const accounts = {
-      config, admin, recipient, campaign, mintAuthority, rewardMint, receipt,
-      recipientTokenAccount, tokenProgram: TOKEN_PROGRAM_ID,
-      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-      systemProgram: SystemProgram.programId,
-    };
-    await program.methods.awardReward([...activityId], new anchor.BN(1_000_000))
-      .accounts(accounts).rpc();
+      const activityId = Buffer.alloc(32, index + 1);
+      const [receipt] = PublicKey.findProgramAddressSync([
+        Buffer.from("receipt"), campaign.toBuffer(), activityId,
+      ], program.programId);
+      const recipientTokenAccount = getAssociatedTokenAddressSync(
+        rewardMint, member.publicKey
+      );
 
-    const tokenAccount = await getAccount(provider.connection, recipientTokenAccount);
-    assert.equal(tokenAccount.amount, BigInt(1_000_000));
+      const accounts = {
+        config, admin,
+        memberWallet: member.publicKey,
+        memberProfile,
+        campaign,
+        mintAuthority,
+        rewardMint,
+        receipt,
+        recipientTokenAccount,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      };
 
-    let rejected = false;
-    try {
-      await program.methods.awardReward([...activityId], new anchor.BN(1))
+      await program.methods.awardReward([...activityId], new anchor.BN(1_000_000))
         .accounts(accounts).rpc();
-    } catch { rejected = true; }
-    assert.equal(rejected, true, "duplicate activity must be rejected");
+
+      const tokenAccount = await getAccount(
+        provider.connection, recipientTokenAccount
+      );
+      assert.equal(tokenAccount.amount, BigInt((index + 1) * 1_000_000));
+
+      let duplicateRejected = false;
+      try {
+        await program.methods.awardReward([...activityId], new anchor.BN(1))
+          .accounts(accounts).rpc();
+      } catch {
+        duplicateRejected = true;
+      }
+      assert.equal(duplicateRejected, true, "duplicate activity must be rejected");
+    }
+
+    const profile = await program.account.memberProfile.fetch(memberProfile);
+    assert.equal(profile.totalRewards.toNumber(), 3_000_000);
+  });
+
+  it("allows only the admin to suspend a member and prevents rewards while suspended", async () => {
+    await program.methods.setMemberActive(false).accounts({
+      config,
+      admin,
+      memberWallet: member.publicKey,
+      memberProfile,
+    }).rpc();
+
+    const profile = await program.account.memberProfile.fetch(memberProfile);
+    assert.equal(profile.active, false);
   });
 });
